@@ -59,9 +59,11 @@ api.interceptors.response.use(
       error.message ||
       'An error occurred';
 
+    // Don't toast 404s on public pages (backend may not be configured yet)
     // Don't toast auth errors on login page
     if (
       error.response?.status !== 401 &&
+      error.response?.status !== 404 &&
       !original.url?.includes('/auth/login')
     ) {
       toast.error(message);

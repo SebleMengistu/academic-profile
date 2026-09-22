@@ -12,8 +12,10 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000, // 5 min
-      retry: 1,
+      retry: false,
       refetchOnWindowFocus: false,
+      // Don't throw on error — pages handle missing data gracefully
+      throwOnError: false,
     },
     mutations: {
       retry: 0,
