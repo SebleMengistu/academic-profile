@@ -1,5 +1,4 @@
 import { Request } from 'express';
-import { Document, Types } from 'mongoose';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export type UserRole = 'SUPER_ADMIN' | 'PROFILE_OWNER' | 'EDITOR';
@@ -17,11 +16,6 @@ export interface AuthRequest extends Request {
 }
 
 // ── Pagination ────────────────────────────────────────────────────────────────
-export interface PaginationQuery {
-  page?: number;
-  limit?: number;
-}
-
 export interface PaginationMeta {
   page: number;
   limit: number;
@@ -48,33 +42,8 @@ export interface UploadResult {
   bytes?: number;
 }
 
-// ── Analytics ─────────────────────────────────────────────────────────────────
-export type AnalyticsEventType =
-  | 'PROFILE_VIEW'
-  | 'PUBLICATION_VIEW'
-  | 'RESEARCH_VIEW'
-  | 'MEDIA_VIEW'
-  | 'CV_DOWNLOAD'
-  | 'EXTERNAL_LINK_CLICK'
-  | 'CONTACT_SUBMISSION';
-
-// ── Service Response ──────────────────────────────────────────────────────────
-export interface ServiceResponse<T = unknown> {
-  success: boolean;
-  data?: T;
-  message?: string;
-  error?: string;
-}
-
 // ── Audit ─────────────────────────────────────────────────────────────────────
 export type AuditAction =
-  | 'CREATE'
-  | 'UPDATE'
-  | 'DELETE'
-  | 'PUBLISH'
-  | 'UNPUBLISH'
-  | 'ARCHIVE'
-  | 'RESTORE'
-  | 'LOGIN'
-  | 'LOGOUT'
-  | 'FAILED_LOGIN';
+  | 'CREATE' | 'UPDATE' | 'DELETE'
+  | 'PUBLISH' | 'UNPUBLISH' | 'ARCHIVE' | 'RESTORE'
+  | 'LOGIN' | 'LOGOUT' | 'FAILED_LOGIN';

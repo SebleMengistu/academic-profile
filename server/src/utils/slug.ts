@@ -1,16 +1,12 @@
 import slugify from 'slugify';
+import supabase from '../lib/supabase';
 
-export const generateSlug = (text: string): string => {
-  return slugify(text, {
-    lower: true,
-    strict: true,
-    trim: true,
-  });
-};
+export const generateSlug = (text: string): string =>
+  slugify(text, { lower: true, strict: true, trim: true });
 
 export const generateUniqueSlug = async (
   text: string,
-  model: { findOne: (query: Record<string, unknown>) => Promise<unknown> },
+  table: string,
   existingId?: string
 ): Promise<string> => {
   const base = generateSlug(text);
@@ -18,14 +14,10 @@ export const generateUniqueSlug = async (
   let counter = 1;
 
   while (true) {
-    const query: Record<string, unknown> = { slug };
-    if (existingId) {
-      query._id = { $ne: existingId };
-    }
-
-    const existing = await model.findOne(query);
-    if (!existing) return slug;
-
+    let query = supabase.from(table).select('id').eq('slug', slug);
+    if (existingId) query = query.neq('id', existingId);
+    const { data } = await query.maybeSingle();
+    if (!data) return slug;
     slug = `${base}-${counter}`;
     counter++;
   }

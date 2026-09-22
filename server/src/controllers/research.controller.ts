@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ResearchArea } from '../models/ResearchArea';
-import { FundedResearch } from '../models/FundedResearch';
+import supabase from '../lib/supabase';
 import { AuthRequest } from '../types';
 import { parsePagination, buildPaginatedResponse } from '../utils/pagination';
 import { generateUniqueSlug } from '../utils/slug';
@@ -8,229 +7,164 @@ import { createAuditLog } from '../services/audit';
 import xss from 'xss';
 
 // ── Research Areas ────────────────────────────────────────────────────────────
-
-export const getResearchAreas = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getResearchAreas = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = await ResearchArea.find().sort({ displayOrder: 1 }).lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('research_areas').select('*').order('display_order');
+    if (error) throw error;
+    res.json({ data: data ?? [] });
+  } catch (err) { next(err); }
 };
 
-export const adminGetResearchAreas = async (
-  _req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminGetResearchAreas = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = await ResearchArea.find().sort({ displayOrder: 1 }).lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('research_areas').select('*').order('display_order');
+    if (error) throw error;
+    res.json({ data: data ?? [] });
+  } catch (err) { next(err); }
 };
 
-export const adminCreateResearchArea = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminCreateResearchArea = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, ...rest } = req.body;
-    const slug = await generateUniqueSlug(name, ResearchArea);
-    const doc = await ResearchArea.create({ name, slug, ...rest });
-    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'ResearchArea', entityId: doc._id.toString(), req });
-    res.status(201).json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
+    const { name, description, icon, displayOrder } = req.body;
+    const slug = await generateUniqueSlug(name, 'research_areas');
+    const { data, error } = await supabase.from('research_areas').insert({
+      name, slug, description: description ?? null, icon: icon ?? null, display_order: displayOrder ?? 0,
+    }).select().maybeSingle();
+    if (error) throw error;
+    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'research_areas', entityId: (data as Record<string, unknown>)?.id as string, req });
+    res.status(201).json({ data });
+  } catch (err) { next(err); }
 };
 
-export const adminUpdateResearchArea = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminUpdateResearchArea = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, ...rest } = req.body;
-    const existing = await ResearchArea.findById((req.params.id as string));
+    const id = req.params.id as string;
+    const { name, description, icon, displayOrder } = req.body;
+    const { data: existing } = await supabase.from('research_areas').select('name').eq('id', id).maybeSingle();
     if (!existing) { res.status(404).json({ message: 'Not found' }); return; }
 
-    const update: Record<string, unknown> = { ...rest };
-    if (name && name !== existing.name) {
-      update.name = name;
-      update.slug = await generateUniqueSlug(name, ResearchArea, (req.params.id as string));
-    } else if (name) {
-      update.name = name;
-    }
+    const payload: Record<string, unknown> = { description: description ?? null, icon: icon ?? null, display_order: displayOrder ?? 0 };
+    if (name && name !== (existing as Record<string, unknown>).name) {
+      payload.name = name;
+      payload.slug = await generateUniqueSlug(name, 'research_areas', id);
+    } else if (name) { payload.name = name; }
 
-    const doc = await ResearchArea.findByIdAndUpdate((req.params.id as string), update, { new: true, runValidators: true });
-    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'ResearchArea', entityId: (req.params.id as string), req });
-    res.json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('research_areas').update(payload).eq('id', id).select().maybeSingle();
+    if (error) throw error;
+    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'research_areas', entityId: id, req });
+    res.json({ data });
+  } catch (err) { next(err); }
 };
 
-export const adminDeleteResearchArea = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminDeleteResearchArea = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const doc = await ResearchArea.findByIdAndDelete((req.params.id as string));
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'ResearchArea', entityId: (req.params.id as string), req });
+    const id = req.params.id as string;
+    const { error } = await supabase.from('research_areas').delete().eq('id', id);
+    if (error) throw error;
+    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'research_areas', entityId: id, req });
     res.json({ message: 'Deleted' });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
 // ── Funded Research ───────────────────────────────────────────────────────────
+const toFRRow = (body: Record<string, unknown>, slug?: string) => ({
+  ...(slug !== undefined && { slug }),
+  title: body.title,
+  description: body.description ? xss(body.description as string) : null,
+  funding_type: body.fundingType,
+  funder: body.funder,
+  funding_scheme: body.fundingScheme ?? null,
+  grant_number: body.grantNumber ?? null,
+  amount: body.amount ?? null,
+  currency: body.currency ?? 'USD',
+  start_date: body.startDate,
+  end_date: body.endDate ?? null,
+  status: body.status ?? 'ACTIVE',
+  principal_investigator: body.principalInvestigator,
+  team_members: body.teamMembers ?? [],
+  research_area_ids: body.researchAreas ?? [],
+  external_url: body.externalUrl ?? null,
+  featured: body.featured ?? false,
+  content_status: body.contentStatus ?? 'DRAFT',
+});
 
-export const getFundedResearch = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getFundedResearch = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
-    const filter: Record<string, unknown> = { contentStatus: 'PUBLISHED' };
-
-    const [data, total] = await Promise.all([
-      FundedResearch.find(filter)
-        .populate('researchAreas', 'name slug')
-        .sort({ startDate: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      FundedResearch.countDocuments(filter),
-    ]);
-
-    res.json(buildPaginatedResponse(data, total, page, limit));
-  } catch (err) {
-    next(err);
-  }
+    const { data, error, count } = await supabase
+      .from('funded_research')
+      .select('*', { count: 'exact' })
+      .eq('content_status', 'PUBLISHED')
+      .order('start_date', { ascending: false })
+      .range(skip, skip + limit - 1);
+    if (error) throw error;
+    res.json(buildPaginatedResponse(data ?? [], count ?? 0, page, limit));
+  } catch (err) { next(err); }
 };
 
-export const getFundedResearchBySlug = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getFundedResearchBySlug = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const doc = await FundedResearch.findOne({
-      slug: (req.params.slug as string),
-      contentStatus: 'PUBLISHED',
-    })
-      .populate('researchAreas', 'name slug')
-      .lean();
-
-    if (!doc) {
-      res.status(404).json({ message: 'Not found' });
-      return;
-    }
-
-    await FundedResearch.findByIdAndUpdate(doc._id, { $inc: { views: 1 } });
-    res.json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase
+      .from('funded_research')
+      .select('*')
+      .eq('slug', req.params.slug as string)
+      .eq('content_status', 'PUBLISHED')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) { res.status(404).json({ message: 'Not found' }); return; }
+    await supabase.from('funded_research').update({ views: (data.views ?? 0) + 1 }).eq('id', data.id);
+    res.json({ data });
+  } catch (err) { next(err); }
 };
 
-export const adminGetFundedResearch = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminGetFundedResearch = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
     const { status } = req.query;
-    const filter: Record<string, unknown> = {};
-    if (status) filter.status = String(status);
-
-    const [data, total] = await Promise.all([
-      FundedResearch.find(filter)
-        .populate('researchAreas', 'name slug')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      FundedResearch.countDocuments(filter),
-    ]);
-
-    res.json(buildPaginatedResponse(data, total, page, limit));
-  } catch (err) {
-    next(err);
-  }
+    let query = supabase.from('funded_research').select('*', { count: 'exact' })
+      .order('created_at', { ascending: false }).range(skip, skip + limit - 1);
+    if (status) query = query.eq('status', String(status));
+    const { data, error, count } = await query;
+    if (error) throw error;
+    res.json(buildPaginatedResponse(data ?? [], count ?? 0, page, limit));
+  } catch (err) { next(err); }
 };
 
-export const adminCreateFundedResearch = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminCreateFundedResearch = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { title, description, ...rest } = req.body;
-    const slug = await generateUniqueSlug(title, FundedResearch);
-    const doc = await FundedResearch.create({
-      title,
-      slug,
-      description: description ? xss(description) : undefined,
-      ...rest,
-    });
-    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'FundedResearch', entityId: doc._id.toString(), req });
-    res.status(201).json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
+    const body = req.body as Record<string, unknown>;
+    const slug = await generateUniqueSlug(body.title as string, 'funded_research');
+    const { data, error } = await supabase.from('funded_research').insert(toFRRow(body, slug)).select().maybeSingle();
+    if (error) throw error;
+    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'funded_research', entityId: (data as Record<string, unknown>)?.id as string, req });
+    res.status(201).json({ data });
+  } catch (err) { next(err); }
 };
 
-export const adminUpdateFundedResearch = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminUpdateFundedResearch = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const existing = await FundedResearch.findById((req.params.id as string));
+    const id = req.params.id as string;
+    const body = req.body as Record<string, unknown>;
+    const { data: existing } = await supabase.from('funded_research').select('slug,title').eq('id', id).maybeSingle();
     if (!existing) { res.status(404).json({ message: 'Not found' }); return; }
 
-    const { title, description, ...rest } = req.body;
-    const update: Record<string, unknown> = { ...rest };
-    if (title && title !== existing.title) {
-      update.title = title;
-      update.slug = await generateUniqueSlug(title, FundedResearch, (req.params.id as string));
-    } else if (title) {
-      update.title = title;
+    let slug = (existing as Record<string, unknown>).slug as string;
+    if (body.title && body.title !== (existing as Record<string, unknown>).title) {
+      slug = await generateUniqueSlug(body.title as string, 'funded_research', id);
     }
-    if (description !== undefined) update.description = xss(description);
-
-    const doc = await FundedResearch.findByIdAndUpdate((req.params.id as string), update, { new: true, runValidators: true }).populate('researchAreas', 'name slug');
-    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'FundedResearch', entityId: (req.params.id as string), req });
-    res.json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('funded_research').update(toFRRow(body, slug)).eq('id', id).select().maybeSingle();
+    if (error) throw error;
+    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'funded_research', entityId: id, req });
+    res.json({ data });
+  } catch (err) { next(err); }
 };
 
-export const adminDeleteFundedResearch = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminDeleteFundedResearch = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const doc = await FundedResearch.findByIdAndDelete((req.params.id as string));
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'FundedResearch', entityId: (req.params.id as string), req });
+    const id = req.params.id as string;
+    const { error } = await supabase.from('funded_research').delete().eq('id', id);
+    if (error) throw error;
+    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'funded_research', entityId: id, req });
     res.json({ message: 'Deleted' });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
-

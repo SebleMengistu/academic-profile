@@ -1,275 +1,190 @@
 import { Request, Response, NextFunction } from 'express';
-import { Profile } from '../models/Profile';
-import { AcademicAppointment } from '../models/AcademicAppointment';
-import { Education } from '../models/Education';
-import { ExternalProfile } from '../models/ExternalProfile';
-import { Membership } from '../models/Membership';
+import supabase from '../lib/supabase';
 import { AuthRequest } from '../types';
 import { createAuditLog } from '../services/audit';
 import * as cloudinaryService from '../services/cloudinary';
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+const snakeToCamel = (row: Record<string, unknown>) => {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    out[k.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = v;
+  }
+  return out;
+};
+
 // ── Public ────────────────────────────────────────────────────────────────────
-
-export const getPublicProfile = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getPublicProfile = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const profile = await Profile.findOne({ visibility: 'PUBLIC' }).lean();
-    if (!profile) {
-      res.status(404).json({ message: 'Profile not found' });
-      return;
-    }
-    res.json({ data: profile });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('profiles').select('*').eq('visibility', 'PUBLIC').maybeSingle();
+    if (error) throw error;
+    if (!data) { res.status(404).json({ message: 'Profile not found' }); return; }
+    res.json({ data: snakeToCamel(data) });
+  } catch (err) { next(err); }
 };
 
-export const getPublicAppointments = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getPublicAppointments = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = await AcademicAppointment.find()
-      .sort({ displayOrder: 1, startDate: -1 })
-      .lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('academic_appointments').select('*').order('display_order').order('start_date', { ascending: false });
+    if (error) throw error;
+    res.json({ data: (data ?? []).map(snakeToCamel) });
+  } catch (err) { next(err); }
 };
 
-export const getPublicEducation = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getPublicEducation = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = await Education.find()
-      .sort({ displayOrder: 1, completionDate: -1 })
-      .lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('education').select('*').order('display_order').order('completion_date', { ascending: false });
+    if (error) throw error;
+    res.json({ data: (data ?? []).map(snakeToCamel) });
+  } catch (err) { next(err); }
 };
 
-export const getPublicExternalProfiles = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getPublicExternalProfiles = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = await ExternalProfile.find({ active: true })
-      .sort({ displayOrder: 1 })
-      .lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('external_profiles').select('*').eq('active', true).order('display_order');
+    if (error) throw error;
+    res.json({ data: (data ?? []).map(snakeToCamel) });
+  } catch (err) { next(err); }
 };
 
-export const getPublicMemberships = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const getPublicMemberships = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = await Membership.find().sort({ displayOrder: 1 }).lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('memberships').select('*').order('display_order');
+    if (error) throw error;
+    res.json({ data: (data ?? []).map(snakeToCamel) });
+  } catch (err) { next(err); }
 };
 
-// ── Admin ─────────────────────────────────────────────────────────────────────
-
-export const adminGetProfile = async (
-  _req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+// ── Admin Profile ─────────────────────────────────────────────────────────────
+export const adminGetProfile = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const profile = await Profile.findOne().lean();
-    res.json({ data: profile || null });
-  } catch (err) {
-    next(err);
-  }
+    const { data, error } = await supabase.from('profiles').select('*').maybeSingle();
+    if (error) throw error;
+    res.json({ data: data ? snakeToCamel(data) : null });
+  } catch (err) { next(err); }
 };
 
-export const adminUpsertProfile = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const adminUpsertProfile = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const existing = await Profile.findOne();
+    const body = req.body;
+    const payload: Record<string, unknown> = {
+      title: body.title, first_name: body.firstName, middle_name: body.middleName,
+      last_name: body.lastName, display_name: body.displayName,
+      professional_title: body.professionalTitle, current_position: body.currentPosition,
+      department: body.department, faculty: body.faculty, institution: body.institution,
+      short_bio: body.shortBio, biography: body.biography,
+      research_statement: body.researchStatement, career_summary: body.careerSummary,
+      email: body.email, phone: body.phone, office: body.office,
+      address: body.address, country: body.country, orcid: body.orcid,
+      profile_type: body.profileType, visibility: body.visibility || 'PUBLIC',
+    };
 
-    let profileData = req.body;
-
-    // Handle photo upload
     if (req.file) {
-      const result = await cloudinaryService.uploadImage(req.file.buffer, 'profile', {
-        width: 400,
-        height: 400,
-      });
-      if (existing?.profilePhotoPublicId) {
-        await cloudinaryService.deleteFile(existing.profilePhotoPublicId).catch(() => {});
+      const { data: existing } = await supabase.from('profiles').select('profile_photo_public_id').maybeSingle();
+      if (existing?.profile_photo_public_id) {
+        await cloudinaryService.deleteFile(existing.profile_photo_public_id).catch(() => {});
       }
-      profileData = {
-        ...profileData,
-        profilePhoto: result.url,
-        profilePhotoPublicId: result.publicId,
-      };
+      const result = await cloudinaryService.uploadImage(req.file.buffer, 'profile', { width: 400, height: 400 });
+      payload.profile_photo = result.url;
+      payload.profile_photo_public_id = result.publicId;
     }
 
-    const profile = existing
-      ? await Profile.findByIdAndUpdate(existing._id, profileData, { new: true, runValidators: true })
-      : await Profile.create(profileData);
+    const { data: existing } = await supabase.from('profiles').select('id').maybeSingle();
+    let result;
+    if (existing) {
+      const { data, error } = await supabase.from('profiles').update(payload).eq('id', existing.id).select().maybeSingle();
+      if (error) throw error;
+      result = data;
+    } else {
+      const { data, error } = await supabase.from('profiles').insert(payload).select().maybeSingle();
+      if (error) throw error;
+      result = data;
+    }
 
-    await createAuditLog({
-      user: req.user,
-      action: existing ? 'UPDATE' : 'CREATE',
-      entity: 'Profile',
-      entityId: profile?._id?.toString(),
-      req,
-    });
-
-    res.json({ data: profile, message: 'Profile saved' });
-  } catch (err) {
-    next(err);
-  }
+    await createAuditLog({ user: req.user, action: existing ? 'UPDATE' : 'CREATE', entity: 'Profile', req });
+    res.json({ data: result ? snakeToCamel(result as Record<string, unknown>) : null, message: 'Profile saved' });
+  } catch (err) { next(err); }
 };
+
+// ── Generic CRUD factory ──────────────────────────────────────────────────────
+type FieldMap = Record<string, string>; // camelCase -> snake_case
+
+const toSnake = (body: Record<string, unknown>, fieldMap: FieldMap): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const [camel, snake] of Object.entries(fieldMap)) {
+    if (body[camel] !== undefined) out[snake] = body[camel];
+  }
+  return out;
+};
+
+const crudHandlers = (table: string, fieldMap: FieldMap, orderCol = 'created_at') => ({
+  getAll: async (_req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { data, error } = await supabase.from(table).select('*').order(orderCol, { ascending: false });
+      if (error) throw error;
+      res.json({ data: (data ?? []).map(snakeToCamel) });
+    } catch (err) { next(err); }
+  },
+  create: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const payload = toSnake(req.body as Record<string, unknown>, fieldMap);
+      const { data, error } = await supabase.from(table).insert(payload).select().maybeSingle();
+      if (error) throw error;
+      await createAuditLog({ user: req.user, action: 'CREATE', entity: table, entityId: (data as Record<string, unknown>)?.id as string, req });
+      res.status(201).json({ data: data ? snakeToCamel(data as Record<string, unknown>) : null });
+    } catch (err) { next(err); }
+  },
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string;
+      const payload = toSnake(req.body as Record<string, unknown>, fieldMap);
+      const { data, error } = await supabase.from(table).update(payload).eq('id', id).select().maybeSingle();
+      if (error) throw error;
+      if (!data) { res.status(404).json({ message: 'Not found' }); return; }
+      await createAuditLog({ user: req.user, action: 'UPDATE', entity: table, entityId: id, req });
+      res.json({ data: snakeToCamel(data as Record<string, unknown>) });
+    } catch (err) { next(err); }
+  },
+  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string;
+      const { error } = await supabase.from(table).delete().eq('id', id);
+      if (error) throw error;
+      await createAuditLog({ user: req.user, action: 'DELETE', entity: table, entityId: id, req });
+      res.json({ message: 'Deleted' });
+    } catch (err) { next(err); }
+  },
+});
 
 // ── Appointments ──────────────────────────────────────────────────────────────
-
-export const adminGetAppointments = async (
-  _req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const data = await AcademicAppointment.find().sort({ displayOrder: 1, startDate: -1 }).lean();
-    res.json({ data });
-  } catch (err) {
-    next(err);
-  }
+const apptMap: FieldMap = {
+  title: 'title', institution: 'institution', faculty: 'faculty', department: 'department',
+  location: 'location', startDate: 'start_date', endDate: 'end_date', isCurrent: 'is_current',
+  description: 'description', displayOrder: 'display_order',
 };
-
-export const adminCreateAppointment = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const doc = await AcademicAppointment.create(req.body);
-    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'AcademicAppointment', entityId: doc._id.toString(), req });
-    res.status(201).json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const adminUpdateAppointment = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const doc = await AcademicAppointment.findByIdAndUpdate((req.params.id as string), req.body, { new: true, runValidators: true });
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'AcademicAppointment', entityId: doc._id.toString(), req });
-    res.json({ data: doc });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const adminDeleteAppointment = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const doc = await AcademicAppointment.findByIdAndDelete((req.params.id as string));
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'AcademicAppointment', entityId: (req.params.id as string), req });
-    res.json({ message: 'Deleted' });
-  } catch (err) {
-    next(err);
-  }
-};
+export const adminGetAppointments  = crudHandlers('academic_appointments', apptMap, 'display_order').getAll;
+export const adminCreateAppointment = crudHandlers('academic_appointments', apptMap, 'display_order').create;
+export const adminUpdateAppointment = crudHandlers('academic_appointments', apptMap, 'display_order').update;
+export const adminDeleteAppointment = crudHandlers('academic_appointments', apptMap, 'display_order').delete;
 
 // ── Education ─────────────────────────────────────────────────────────────────
-
-export const adminGetEducation = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const data = await Education.find().sort({ displayOrder: 1, completionDate: -1 }).lean();
-    res.json({ data });
-  } catch (err) { next(err); }
+const eduMap: FieldMap = {
+  degree: 'degree', field: 'field', institution: 'institution', location: 'location',
+  country: 'country', startDate: 'start_date', completionDate: 'completion_date',
+  thesisTitle: 'thesis_title', thesisUrl: 'thesis_url', description: 'description',
+  displayOrder: 'display_order',
 };
-
-export const adminCreateEducation = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const doc = await Education.create(req.body);
-    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'Education', entityId: doc._id.toString(), req });
-    res.status(201).json({ data: doc });
-  } catch (err) { next(err); }
-};
-
-export const adminUpdateEducation = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const doc = await Education.findByIdAndUpdate((req.params.id as string), req.body, { new: true, runValidators: true });
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'Education', entityId: doc._id.toString(), req });
-    res.json({ data: doc });
-  } catch (err) { next(err); }
-};
-
-export const adminDeleteEducation = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const doc = await Education.findByIdAndDelete((req.params.id as string));
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'Education', entityId: (req.params.id as string), req });
-    res.json({ message: 'Deleted' });
-  } catch (err) { next(err); }
-};
+export const adminGetEducation  = crudHandlers('education', eduMap, 'display_order').getAll;
+export const adminCreateEducation = crudHandlers('education', eduMap, 'display_order').create;
+export const adminUpdateEducation = crudHandlers('education', eduMap, 'display_order').update;
+export const adminDeleteEducation = crudHandlers('education', eduMap, 'display_order').delete;
 
 // ── External Profiles ─────────────────────────────────────────────────────────
-
-export const adminGetExternalProfiles = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const data = await ExternalProfile.find().sort({ displayOrder: 1 }).lean();
-    res.json({ data });
-  } catch (err) { next(err); }
+const extMap: FieldMap = {
+  platform: 'platform', label: 'label', url: 'url', icon: 'icon',
+  displayOrder: 'display_order', active: 'active',
 };
-
-export const adminCreateExternalProfile = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const doc = await ExternalProfile.create(req.body);
-    await createAuditLog({ user: req.user, action: 'CREATE', entity: 'ExternalProfile', entityId: doc._id.toString(), req });
-    res.status(201).json({ data: doc });
-  } catch (err) { next(err); }
-};
-
-export const adminUpdateExternalProfile = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const doc = await ExternalProfile.findByIdAndUpdate((req.params.id as string), req.body, { new: true });
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'ExternalProfile', entityId: doc._id.toString(), req });
-    res.json({ data: doc });
-  } catch (err) { next(err); }
-};
-
-export const adminDeleteExternalProfile = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const doc = await ExternalProfile.findByIdAndDelete((req.params.id as string));
-    if (!doc) { res.status(404).json({ message: 'Not found' }); return; }
-    await createAuditLog({ user: req.user, action: 'DELETE', entity: 'ExternalProfile', entityId: (req.params.id as string), req });
-    res.json({ message: 'Deleted' });
-  } catch (err) { next(err); }
-};
-
+export const adminGetExternalProfiles  = crudHandlers('external_profiles', extMap, 'display_order').getAll;
+export const adminCreateExternalProfile = crudHandlers('external_profiles', extMap, 'display_order').create;
+export const adminUpdateExternalProfile = crudHandlers('external_profiles', extMap, 'display_order').update;
+export const adminDeleteExternalProfile = crudHandlers('external_profiles', extMap, 'display_order').delete;

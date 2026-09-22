@@ -1,11 +1,21 @@
 import app from './app';
-import { connectDB, disconnectDB } from './config/database';
 import config from './config';
+import supabase from './lib/supabase';
 
 const PORT = config.port;
 
 const start = async () => {
-  await connectDB();
+  // Verify Supabase connection
+  if (config.supabase.url && config.supabase.serviceKey) {
+    const { error } = await supabase.from('settings').select('id').limit(1);
+    if (error) {
+      console.error('[Supabase] Connection check failed:', error.message);
+    } else {
+      console.log('[Supabase] Connected successfully');
+    }
+  } else {
+    console.warn('[Supabase] Credentials not set — running without database');
+  }
 
   const server = app.listen(PORT, () => {
     console.log(`[Server] Running on http://localhost:${PORT}`);
@@ -13,33 +23,16 @@ const start = async () => {
     console.log(`[Server] Client URL: ${config.clientUrl}`);
   });
 
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    console.log(`\n[Server] ${signal} received — shutting down gracefully`);
-    server.close(async () => {
-      await disconnectDB();
-      console.log('[Server] Shutdown complete');
-      process.exit(0);
-    });
-
-    // Force exit after 10s
-    setTimeout(() => {
-      console.error('[Server] Forced shutdown after timeout');
-      process.exit(1);
-    }, 10_000);
+  const shutdown = (signal: string) => {
+    console.log(`\n[Server] ${signal} — shutting down`);
+    server.close(() => { console.log('[Server] Closed'); process.exit(0); });
+    setTimeout(() => process.exit(1), 10_000);
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-
-  process.on('unhandledRejection', (reason) => {
-    console.error('[Server] Unhandled Rejection:', reason);
-  });
-
-  process.on('uncaughtException', (err) => {
-    console.error('[Server] Uncaught Exception:', err);
-    process.exit(1);
-  });
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.on('unhandledRejection', (r) => console.error('[Unhandled Rejection]', r));
+  process.on('uncaughtException',  (e) => { console.error('[Uncaught Exception]', e); process.exit(1); });
 };
 
 start();

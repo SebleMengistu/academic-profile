@@ -3,12 +3,6 @@ import path from 'path';
 
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
-const required = (key: string): string => {
-  const val = process.env[key];
-  if (!val) throw new Error(`Missing required environment variable: ${key}`);
-  return val;
-};
-
 const optional = (key: string, fallback = ''): string =>
   process.env[key] ?? fallback;
 
@@ -16,7 +10,11 @@ export const config = {
   env: optional('NODE_ENV', 'development'),
   port: parseInt(optional('PORT', '5000'), 10),
 
-  mongoUri: optional('MONGO_URI', 'mongodb://localhost:27017/academic_profile'),
+  supabase: {
+    url: optional('SUPABASE_URL'),
+    anonKey: optional('SUPABASE_ANON_KEY'),
+    serviceKey: optional('SUPABASE_SERVICE_KEY'),
+  },
 
   jwt: {
     secret: optional('JWT_SECRET', 'dev_jwt_secret_change_in_production'),
