@@ -1,92 +1,51 @@
 import { Request, Response, NextFunction } from 'express';
-import supabase from '../lib/supabase';
+import { ServiceLeadership } from '../models/ServiceLeadership';
+import { Award } from '../models/Award';
+import { Membership } from '../models/Membership';
 import { AuthRequest } from '../types';
 import { createAuditLog } from '../services/audit';
 
-const crud = (table: string) => ({
-  getPublic: async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { data, error } = await supabase.from(table).select('*').order('display_order');
-      if (error) throw error;
-      res.json({ data: data ?? [] });
-    } catch (err) { next(err); }
-  },
-  getAdmin: async (_req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      const { data, error } = await supabase.from(table).select('*').order('display_order');
-      if (error) throw error;
-      res.json({ data: data ?? [] });
-    } catch (err) { next(err); }
-  },
-  create: (mapFn: (b: Record<string,unknown>) => Record<string,unknown>) =>
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-      try {
-        const { data, error } = await supabase.from(table).insert(mapFn(req.body)).select().maybeSingle();
-        if (error) throw error;
-        await createAuditLog({ user: req.user, action: 'CREATE', entity: table, entityId: (data as any)?.id, req });
-        res.status(201).json({ data });
-      } catch (err) { next(err); }
-    },
-  update: (mapFn: (b: Record<string,unknown>) => Record<string,unknown>) =>
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-      try {
-        const id = req.params.id as string;
-        const { data, error } = await supabase.from(table).update(mapFn(req.body)).eq('id', id).select().maybeSingle();
-        if (error) throw error;
-        if (!data) { res.status(404).json({ message: 'Not found' }); return; }
-        await createAuditLog({ user: req.user, action: 'UPDATE', entity: table, entityId: id, req });
-        res.json({ data });
-      } catch (err) { next(err); }
-    },
-  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params.id as string;
-      const { error } = await supabase.from(table).delete().eq('id', id);
-      if (error) throw error;
-      await createAuditLog({ user: req.user, action: 'DELETE', entity: table, entityId: id, req });
-      res.json({ message: 'Deleted' });
-    } catch (err) { next(err); }
-  },
-});
+export const getServiceLeadership = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try { res.json({ data: await ServiceLeadership.find().sort({ displayOrder: 1, startDate: -1 }).lean() }); } catch (err) { next(err); }
+};
+export const adminGetServiceLeadership = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { res.json({ data: await ServiceLeadership.find().sort({ displayOrder: 1 }).lean() }); } catch (err) { next(err); }
+};
+export const adminCreateServiceLeadership = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const doc = await ServiceLeadership.create(req.body); await createAuditLog({ user: req.user, action: 'CREATE', entity: 'ServiceLeadership', entityId: doc._id.toString(), req }); res.status(201).json({ data: doc }); } catch (err) { next(err); }
+};
+export const adminUpdateServiceLeadership = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const id = req.params.id as string; const doc = await ServiceLeadership.findByIdAndUpdate(id, req.body, { new: true, runValidators: true }); if (!doc) { res.status(404).json({ message: 'Not found' }); return; } await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'ServiceLeadership', entityId: id, req }); res.json({ data: doc }); } catch (err) { next(err); }
+};
+export const adminDeleteServiceLeadership = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const id = req.params.id as string; const doc = await ServiceLeadership.findByIdAndDelete(id); if (!doc) { res.status(404).json({ message: 'Not found' }); return; } await createAuditLog({ user: req.user, action: 'DELETE', entity: 'ServiceLeadership', entityId: id, req }); res.json({ message: 'Deleted' }); } catch (err) { next(err); }
+};
 
-// ── Service & Leadership ──────────────────────────────────────────────────────
-const svcMap = (b: Record<string,unknown>) => ({
-  role: b.role, organization: b.organization, type: b.type,
-  description: b.description ?? null, start_date: b.startDate ?? null,
-  end_date: b.endDate ?? null, is_current: b.isCurrent ?? false,
-  external_url: b.externalUrl ?? null, display_order: b.displayOrder ?? 0,
-});
-const svc = crud('service_leadership');
-export const getServiceLeadership      = svc.getPublic;
-export const adminGetServiceLeadership = svc.getAdmin;
-export const adminCreateServiceLeadership = svc.create(svcMap);
-export const adminUpdateServiceLeadership = svc.update(svcMap);
-export const adminDeleteServiceLeadership = svc.delete;
+export const getAwards = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try { res.json({ data: await Award.find().sort({ date: -1, displayOrder: 1 }).lean() }); } catch (err) { next(err); }
+};
+export const adminGetAwards = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { res.json({ data: await Award.find().sort({ date: -1 }).lean() }); } catch (err) { next(err); }
+};
+export const adminCreateAward = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const doc = await Award.create(req.body); await createAuditLog({ user: req.user, action: 'CREATE', entity: 'Award', entityId: doc._id.toString(), req }); res.status(201).json({ data: doc }); } catch (err) { next(err); }
+};
+export const adminUpdateAward = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const id = req.params.id as string; const doc = await Award.findByIdAndUpdate(id, req.body, { new: true, runValidators: true }); if (!doc) { res.status(404).json({ message: 'Not found' }); return; } await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'Award', entityId: id, req }); res.json({ data: doc }); } catch (err) { next(err); }
+};
+export const adminDeleteAward = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const id = req.params.id as string; const doc = await Award.findByIdAndDelete(id); if (!doc) { res.status(404).json({ message: 'Not found' }); return; } await createAuditLog({ user: req.user, action: 'DELETE', entity: 'Award', entityId: id, req }); res.json({ message: 'Deleted' }); } catch (err) { next(err); }
+};
 
-// ── Awards ────────────────────────────────────────────────────────────────────
-const awardMap = (b: Record<string,unknown>) => ({
-  name: b.name, organization: b.organization, date: b.date ?? null,
-  category: b.category ?? null, description: b.description ?? null,
-  certificate_url: b.certificateUrl ?? null, external_url: b.externalUrl ?? null,
-  display_order: b.displayOrder ?? 0,
-});
-const aw = crud('awards');
-export const getAwards      = aw.getPublic;
-export const adminGetAwards = aw.getAdmin;
-export const adminCreateAward = aw.create(awardMap);
-export const adminUpdateAward = aw.update(awardMap);
-export const adminDeleteAward = aw.delete;
-
-// ── Memberships ───────────────────────────────────────────────────────────────
-const memMap = (b: Record<string,unknown>) => ({
-  organization: b.organization, role: b.role ?? null,
-  membership_type: b.membershipType ?? null,
-  start_date: b.startDate ?? null, end_date: b.endDate ?? null,
-  is_current: b.isCurrent ?? true, external_url: b.externalUrl ?? null,
-  display_order: b.displayOrder ?? 0,
-});
-const mem = crud('memberships');
-export const adminGetMemberships  = mem.getAdmin;
-export const adminCreateMembership = mem.create(memMap);
-export const adminUpdateMembership = mem.update(memMap);
-export const adminDeleteMembership = mem.delete;
+export const adminGetMemberships = async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { res.json({ data: await Membership.find().sort({ displayOrder: 1 }).lean() }); } catch (err) { next(err); }
+};
+export const adminCreateMembership = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const doc = await Membership.create(req.body); await createAuditLog({ user: req.user, action: 'CREATE', entity: 'Membership', entityId: doc._id.toString(), req }); res.status(201).json({ data: doc }); } catch (err) { next(err); }
+};
+export const adminUpdateMembership = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const id = req.params.id as string; const doc = await Membership.findByIdAndUpdate(id, req.body, { new: true }); if (!doc) { res.status(404).json({ message: 'Not found' }); return; } await createAuditLog({ user: req.user, action: 'UPDATE', entity: 'Membership', entityId: id, req }); res.json({ data: doc }); } catch (err) { next(err); }
+};
+export const adminDeleteMembership = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try { const id = req.params.id as string; const doc = await Membership.findByIdAndDelete(id); if (!doc) { res.status(404).json({ message: 'Not found' }); return; } await createAuditLog({ user: req.user, action: 'DELETE', entity: 'Membership', entityId: id, req }); res.json({ message: 'Deleted' }); } catch (err) { next(err); }
+};

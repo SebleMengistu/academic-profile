@@ -1,4 +1,4 @@
-import supabase from '../lib/supabase';
+import { AuditLog } from '../models/AuditLog';
 import { AuditAction, JwtPayload } from '../types';
 import { Request } from 'express';
 
@@ -19,16 +19,16 @@ const getIp = (req: Request): string => {
 
 export const createAuditLog = async (opts: AuditOptions): Promise<void> => {
   try {
-    await supabase.from('audit_logs').insert({
-      user_id:    opts.user?.userId ?? null,
-      user_email: opts.user?.email  ?? null,
-      user_role:  opts.user?.role   ?? null,
-      action:     opts.action,
-      entity:     opts.entity,
-      entity_id:  opts.entityId ?? null,
-      details:    opts.details  ?? null,
-      ip_address: opts.req ? getIp(opts.req) : null,
-      user_agent: opts.req?.headers?.['user-agent'] ?? null,
+    await AuditLog.create({
+      userId:    opts.user?.userId,
+      userEmail: opts.user?.email,
+      userRole:  opts.user?.role,
+      action:    opts.action,
+      entity:    opts.entity,
+      entityId:  opts.entityId,
+      details:   opts.details,
+      ipAddress: opts.req ? getIp(opts.req) : undefined,
+      userAgent: opts.req?.headers?.['user-agent'],
     });
   } catch (err) {
     console.error('[AuditLog] Failed:', err);

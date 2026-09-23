@@ -1,0 +1,4 @@
+import mongoose, { Document, Schema } from 'mongoose';
+export interface ISettings extends Document { _id: mongoose.Types.ObjectId; siteName: string; siteUrl?: string; seo?: Record<string,unknown>; maintenanceMode: boolean; allowContactForm: boolean; analyticsEnabled: boolean; googleAnalyticsId?: string; footerText?: string; createdAt: Date; updatedAt: Date; }
+const schema = new Schema<ISettings>({ siteName: { type: String, default: 'Academic Profile' }, siteUrl: String, seo: { type: Schema.Types.Mixed }, maintenanceMode: { type: Boolean, default: false }, allowContactForm: { type: Boolean, default: true }, analyticsEnabled: { type: Boolean, default: true }, googleAnalyticsId: String, footerText: String }, { timestamps: true });
+export const Settings = mongoose.model<ISettings>('Settings', schema);

@@ -37,6 +37,9 @@ coverage/
 # Temp uploads
 server/src/uploads/
 
+# Local tooling
+.freebuff/
+
 # Optional lock files (keep one of these, remove the rest)
 # package-lock.json
 # yarn.lock
